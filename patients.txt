@@ -1,0 +1,24 @@
+PatientID: P1001
+Name: Julian Bascao
+Sex: Male
+Age: 19
+Contact: 09129781263
+Allergies: Shell Fish
+Surgeries: Hip Transplant
+---
+PatientID: P1002
+Name: Wynn Rossel T. Guia
+Sex: Male
+Age: 18
+Contact: 09012893761
+Allergies: Seafood
+Surgeries: Brain Surgery
+---
+PatientID: P1003
+Name: Ramon Joshua P. Carrillo
+Sex: Male
+Age: 21
+Contact: 09127371263
+Allergies: None
+Surgeries: Liver Transplant
+---
