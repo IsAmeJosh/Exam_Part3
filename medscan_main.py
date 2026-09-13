@@ -1,5 +1,6 @@
 import streamlit as st
 from medscan_doctor import authenticate_doctor, register_doctor, doctor_exists
+from medscan_patient_auth import authenticate_patient, register_patient_auth, patient_auth_exists
 from medscan_registration import register_patient
 from medscan_lookup import lookup_patient
 from medscan_notes import add_note
@@ -17,6 +18,10 @@ if "doctor_logged_in" not in st.session_state:
     st.session_state.doctor_logged_in = False
 if "doctor_name" not in st.session_state:
     st.session_state.doctor_name = ""
+if "patient_logged_in" not in st.session_state:
+    st.session_state.patient_logged_in = False
+if "patient_id_logged_in" not in st.session_state:
+    st.session_state.patient_id_logged_in = ""
 if "allergy_list" not in st.session_state:
     st.session_state.allergy_list = []
 if "surgery_list" not in st.session_state:
@@ -39,6 +44,12 @@ if not st.session_state.doctor_logged_in:
         st.session_state.doctor_logged_in = True
         st.session_state.doctor_name = qp_doctor
 
+if not st.session_state.patient_logged_in:
+    qp_patient = st.query_params.get("patient")
+    if qp_patient and patient_auth_exists(qp_patient):
+        st.session_state.patient_logged_in = True
+        st.session_state.patient_id_logged_in = qp_patient
+
 st.sidebar.title("MedScan Menu")
 mode = st.sidebar.radio(
     "Select mode:",
@@ -60,6 +71,11 @@ if mode == "Patient Registration":
 
     age = st.number_input("Age", min_value=0, max_value=120, step=1)
     contact = st.text_input("Contact Number", max_chars=11, placeholder="e.g. 09171234567")
+
+    st.write("**Set a Password**")
+    st.caption("You'll use your Patient ID together with this password to log in under Manage Access.")
+    reg_password = st.text_input("Choose a Password", type="password", key="reg_password")
+    reg_confirm_password = st.text_input("Confirm Password", type="password", key="reg_confirm_password")
 
     st.write("**Known Allergies**")
     col_a, col_b = st.columns([3, 1])
@@ -132,13 +148,18 @@ if mode == "Patient Registration":
             st.error("Contact number must contain digits only.")
         elif len(contact_digits) < 10 or len(contact_digits) > 11:
             st.error("Contact number must be 10–11 digits long (e.g. 09171234567).")
+        elif reg_password == "":
+            st.error("Please set a password.")
+        elif reg_password != reg_confirm_password:
+            st.error("Passwords do not match.")
         else:
             allergies_string = ", ".join(st.session_state.allergy_list) if st.session_state.allergy_list else "None"
             surgeries_string = ", ".join(st.session_state.surgery_list) if st.session_state.surgery_list else "None"
             patient_id = register_patient(name, sex, age, contact, allergies_string, surgeries_string)
+            register_patient_auth(patient_id, reg_password)
             st.success("Patient registered successfully!")
             st.info(f"Your Patient ID is: **{patient_id}**")
-            st.warning("Save this ID — you will need it for future clinic visits.")
+            st.warning("Save this ID and password — you will need both for future clinic visits and to manage doctor access.")
             st.session_state.allergy_list = []
             st.session_state.surgery_list = []
 
@@ -148,19 +169,65 @@ if mode == "Patient Registration":
 # ============================================================
 elif mode == "Manage Access":
     st.subheader("Manage Doctor Access")
-    st.write("Enter your Patient ID to review and control which doctors can access your record.")
 
-    patient_id_input = st.text_input("Your Patient ID")
+    if not st.session_state.patient_logged_in:
+        st.write("Log in with your Patient ID and password to review and control which doctors can access your record.")
 
-    if st.button("View Access Requests"):
-        patient = lookup_patient(patient_id_input)
-        if not patient:
-            st.error("Patient ID not found.")
-        else:
-            st.session_state.access_patient_id = patient_id_input
+        login_tab, setup_tab = st.tabs(["🔑 Log In", "🆕 Set Up Account"])
 
-    if st.session_state.get("access_patient_id"):
-        requests = get_requests_for_patient(st.session_state.access_patient_id)
+        # --- Log In ---
+        with login_tab:
+            patient_id_input = st.text_input("Patient ID", key="patient_login_id")
+            patient_password_input = st.text_input("Password", type="password", key="patient_login_password")
+
+            if st.button("Log In", key="patient_login_button"):
+                if authenticate_patient(patient_id_input.strip(), patient_password_input):
+                    st.session_state.patient_logged_in = True
+                    st.session_state.patient_id_logged_in = patient_id_input.strip()
+                    st.query_params["patient"] = patient_id_input.strip()  # survives a page refresh
+                    st.rerun()
+                else:
+                    st.error("Invalid Patient ID or password.")
+
+        # --- Set Up Account (for patients registered before accounts existed) ---
+        with setup_tab:
+            st.caption("If your Patient ID doesn't have a password yet, set one up here.")
+            setup_id = st.text_input("Your Patient ID", key="patient_setup_id")
+            setup_password = st.text_input("Choose a Password", type="password", key="patient_setup_password")
+            setup_confirm = st.text_input("Confirm Password", type="password", key="patient_setup_confirm")
+
+            if st.button("Set Up Account", key="patient_setup_button"):
+                setup_id_clean = setup_id.strip()
+                patient = lookup_patient(setup_id_clean)
+                if not patient:
+                    st.error("Patient ID not found.")
+                elif setup_password == "":
+                    st.error("Password is required.")
+                elif setup_password != setup_confirm:
+                    st.error("Passwords do not match.")
+                else:
+                    success, message = register_patient_auth(setup_id_clean, setup_password)
+                    if success:
+                        st.success(message)
+                        st.info("Switch to the Log In tab to sign in with your new password.")
+                    else:
+                        st.error(message)
+
+    else:
+        logged_in_patient = lookup_patient(st.session_state.patient_id_logged_in)
+        display_name = logged_in_patient.name if logged_in_patient else st.session_state.patient_id_logged_in
+        st.write(f"Logged in as **{display_name}** ({st.session_state.patient_id_logged_in})")
+
+        if st.button("Log Out", key="patient_logout_button"):
+            st.session_state.patient_logged_in = False
+            st.session_state.patient_id_logged_in = ""
+            if "patient" in st.query_params:
+                del st.query_params["patient"]
+            st.rerun()
+
+        st.divider()
+
+        requests = get_requests_for_patient(st.session_state.patient_id_logged_in)
 
         if not requests:
             st.info("No doctors have requested access yet.")
@@ -171,12 +238,12 @@ elif mode == "Manage Access":
 
                 if r["status"] != "approved":
                     if col2.button("Approve", key=f"approve_{r['doctor']}"):
-                        set_access_status(st.session_state.access_patient_id, r["doctor"], "approved")
+                        set_access_status(st.session_state.patient_id_logged_in, r["doctor"], "approved")
                         st.rerun()
 
                 if r["status"] != "denied":
                     if col3.button("Deny", key=f"deny_{r['doctor']}"):
-                        set_access_status(st.session_state.access_patient_id, r["doctor"], "denied")
+                        set_access_status(st.session_state.patient_id_logged_in, r["doctor"], "denied")
                         st.rerun()
 
 
