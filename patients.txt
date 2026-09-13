@@ -22,3 +22,19 @@ Contact: 09127371263
 Allergies: None
 Surgeries: Liver Transplant
 ---
+PatientID: P1004
+Name: Ramon Joshua P. Carrillo
+Sex: Prefer not to say
+Age: 19
+Contact: 09781283712
+Allergies: Seafood, Dogs
+Surgeries: Brain surgery
+---
+PatientID: P1005
+Name: Ramon Joshua P. Carrillo
+Sex: Male
+Age: 30
+Contact: 09812781862
+Allergies: Dogs, Seafood
+Surgeries: Hip Transplant
+---

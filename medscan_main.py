@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 from medscan_doctor import authenticate_doctor, register_doctor, doctor_exists
 from medscan_patient_auth import authenticate_patient, register_patient_auth, patient_auth_exists
@@ -13,6 +14,11 @@ st.set_page_config(page_title="MedScan", page_icon="🩺", layout="wide")
 st.title("🩺 MedScan")
 st.write("ID-Based Patient Medical Record Access System")
 st.divider()
+
+
+def is_valid_patient_id(patient_id):
+    """Patient IDs are always auto-generated as 'P' + digits (e.g. P1001)."""
+    return bool(re.fullmatch(r"P\d+", patient_id.strip().upper()))
 
 if "doctor_logged_in" not in st.session_state:
     st.session_state.doctor_logged_in = False
@@ -53,7 +59,8 @@ if not st.session_state.patient_logged_in:
 st.sidebar.title("MedScan Menu")
 mode = st.sidebar.radio(
     "Select mode:",
-    ["Patient Registration", "Manage Access", "Doctor Login"]
+    ["Patient Registration", "Patient Portal", "Doctor Portal"],
+    key="nav_mode"
 )
 
 # ============================================================
@@ -73,7 +80,7 @@ if mode == "Patient Registration":
     contact = st.text_input("Contact Number", max_chars=11, placeholder="e.g. 09171234567")
 
     st.write("**Set a Password**")
-    st.caption("You'll use your Patient ID together with this password to log in under Manage Access.")
+    st.caption("You'll use your Patient ID together with this password to log in under Patient Portal.")
     reg_password = st.text_input("Choose a Password", type="password", key="reg_password")
     reg_confirm_password = st.text_input("Confirm Password", type="password", key="reg_confirm_password")
 
@@ -162,56 +169,42 @@ if mode == "Patient Registration":
             st.warning("Save this ID and password — you will need both for future clinic visits and to manage doctor access.")
             st.session_state.allergy_list = []
             st.session_state.surgery_list = []
+            st.session_state.just_registered_id = patient_id
+
+    if st.session_state.get("just_registered_id"):
+        st.divider()
+        if st.button("Continue to Patient Portal ➡️"):
+            pid = st.session_state.just_registered_id
+            st.session_state.patient_logged_in = True
+            st.session_state.patient_id_logged_in = pid
+            st.query_params["patient"] = pid  # survives a page refresh
+            st.session_state.just_registered_id = None
+            st.session_state.nav_mode = "Patient Portal"
+            st.rerun()
 
 
 # ============================================================
 # MANAGE ACCESS (Patient side)
 # ============================================================
-elif mode == "Manage Access":
+elif mode == "Patient Portal":
     st.subheader("Manage Doctor Access")
 
     if not st.session_state.patient_logged_in:
         st.write("Log in with your Patient ID and password to review and control which doctors can access your record.")
 
-        login_tab, setup_tab = st.tabs(["🔑 Log In", "🆕 Set Up Account"])
+        patient_id_input = st.text_input("Patient ID", key="patient_login_id", placeholder="e.g. P1001")
+        patient_password_input = st.text_input("Password", type="password", key="patient_login_password")
 
-        # --- Log In ---
-        with login_tab:
-            patient_id_input = st.text_input("Patient ID", key="patient_login_id")
-            patient_password_input = st.text_input("Password", type="password", key="patient_login_password")
-
-            if st.button("Log In", key="patient_login_button"):
-                if authenticate_patient(patient_id_input.strip(), patient_password_input):
-                    st.session_state.patient_logged_in = True
-                    st.session_state.patient_id_logged_in = patient_id_input.strip()
-                    st.query_params["patient"] = patient_id_input.strip()  # survives a page refresh
-                    st.rerun()
-                else:
-                    st.error("Invalid Patient ID or password.")
-
-        # --- Set Up Account (for patients registered before accounts existed) ---
-        with setup_tab:
-            st.caption("If your Patient ID doesn't have a password yet, set one up here.")
-            setup_id = st.text_input("Your Patient ID", key="patient_setup_id")
-            setup_password = st.text_input("Choose a Password", type="password", key="patient_setup_password")
-            setup_confirm = st.text_input("Confirm Password", type="password", key="patient_setup_confirm")
-
-            if st.button("Set Up Account", key="patient_setup_button"):
-                setup_id_clean = setup_id.strip()
-                patient = lookup_patient(setup_id_clean)
-                if not patient:
-                    st.error("Patient ID not found.")
-                elif setup_password == "":
-                    st.error("Password is required.")
-                elif setup_password != setup_confirm:
-                    st.error("Passwords do not match.")
-                else:
-                    success, message = register_patient_auth(setup_id_clean, setup_password)
-                    if success:
-                        st.success(message)
-                        st.info("Switch to the Log In tab to sign in with your new password.")
-                    else:
-                        st.error(message)
+        if st.button("Log In", key="patient_login_button"):
+            if not is_valid_patient_id(patient_id_input):
+                st.error("That doesn't look like a Patient ID. It should look like P1001.")
+            elif authenticate_patient(patient_id_input.strip().upper(), patient_password_input):
+                st.session_state.patient_logged_in = True
+                st.session_state.patient_id_logged_in = patient_id_input.strip().upper()
+                st.query_params["patient"] = patient_id_input.strip().upper()  # survives a page refresh
+                st.rerun()
+            else:
+                st.error("Invalid Patient ID or password.")
 
     else:
         logged_in_patient = lookup_patient(st.session_state.patient_id_logged_in)
@@ -250,7 +243,7 @@ elif mode == "Manage Access":
 # ============================================================
 # DOCTOR LOGIN
 # ============================================================
-elif mode == "Doctor Login":
+elif mode == "Doctor Portal":
 
     if not st.session_state.doctor_logged_in:
         login_tab, signup_tab = st.tabs(["🔑 Log In", "🆕 Sign Up"])
@@ -308,16 +301,20 @@ elif mode == "Doctor Login":
 
         # --- Tab 1: Lookup by ID ---
         with tab1:
-            patient_id = st.text_input("Enter Patient ID")
+            patient_id = st.text_input("Enter Patient ID", placeholder="e.g. P1001")
 
             if st.button("Look Up Patient"):
-                patient = lookup_patient(patient_id)
-                if patient:
-                    st.session_state.current_patient = patient
-                    st.session_state.emergency_unlocked = False
-                else:
+                if not is_valid_patient_id(patient_id):
+                    st.error("That doesn't look like a Patient ID. It should look like P1001.")
                     st.session_state.current_patient = None
-                    st.error("Patient not found.")
+                else:
+                    patient = lookup_patient(patient_id.strip().upper())
+                    if patient:
+                        st.session_state.current_patient = patient
+                        st.session_state.emergency_unlocked = False
+                    else:
+                        st.session_state.current_patient = None
+                        st.error("Patient not found.")
 
         # --- Tab 2: All Patients list ---
         with tab2:
