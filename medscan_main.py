@@ -1,5 +1,5 @@
 import streamlit as st
-from medscan_doctor import authenticate_doctor
+from medscan_doctor import authenticate_doctor, register_doctor, doctor_exists
 from medscan_registration import register_patient
 from medscan_lookup import lookup_patient
 from medscan_notes import add_note
@@ -25,6 +25,19 @@ if "current_patient" not in st.session_state:
     st.session_state.current_patient = None
 if "emergency_unlocked" not in st.session_state:
     st.session_state.emergency_unlocked = False
+
+# ------------------------------------------------------------
+# Restore login after a browser refresh.
+# A refresh starts a brand-new Streamlit session, so
+# st.session_state is wiped every time — but the URL's query
+# params survive a refresh, so we keep the logged-in doctor's
+# username there and use it to log them back in automatically.
+# ------------------------------------------------------------
+if not st.session_state.doctor_logged_in:
+    qp_doctor = st.query_params.get("doctor")
+    if qp_doctor and doctor_exists(qp_doctor):
+        st.session_state.doctor_logged_in = True
+        st.session_state.doctor_name = qp_doctor
 
 st.sidebar.title("MedScan Menu")
 mode = st.sidebar.radio(
@@ -173,17 +186,42 @@ elif mode == "Manage Access":
 elif mode == "Doctor Login":
 
     if not st.session_state.doctor_logged_in:
-        st.subheader("Doctor Login")
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        login_tab, signup_tab = st.tabs(["🔑 Log In", "🆕 Sign Up"])
 
-        if st.button("Log In"):
-            if authenticate_doctor(username, password):
-                st.session_state.doctor_logged_in = True
-                st.session_state.doctor_name = username
-                st.rerun()
-            else:
-                st.error("Invalid username or password.")
+        # --- Log In ---
+        with login_tab:
+            st.subheader("Doctor Login")
+            username = st.text_input("Username", key="login_username")
+            password = st.text_input("Password", type="password", key="login_password")
+
+            if st.button("Log In"):
+                if authenticate_doctor(username, password):
+                    st.session_state.doctor_logged_in = True
+                    st.session_state.doctor_name = username
+                    st.query_params["doctor"] = username  # survives a page refresh
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+
+        # --- Sign Up ---
+        with signup_tab:
+            st.subheader("Create a Doctor Account")
+            new_username = st.text_input("Choose a Username", key="signup_username")
+            new_password = st.text_input("Choose a Password", type="password", key="signup_password")
+            confirm_password = st.text_input("Confirm Password", type="password", key="signup_confirm_password")
+
+            if st.button("Sign Up"):
+                if new_username.strip() == "" or new_password == "":
+                    st.error("Username and password are required.")
+                elif new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    success, message = register_doctor(new_username, new_password)
+                    if success:
+                        st.success(message)
+                        st.info("Switch to the Log In tab to sign in with your new account.")
+                    else:
+                        st.error(message)
 
     else:
         st.subheader(f"Welcome, Dr. {st.session_state.doctor_name}")
@@ -193,6 +231,8 @@ elif mode == "Doctor Login":
             st.session_state.doctor_name = ""
             st.session_state.current_patient = None
             st.session_state.emergency_unlocked = False
+            if "doctor" in st.query_params:
+                del st.query_params["doctor"]
             st.rerun()
 
         st.divider()
