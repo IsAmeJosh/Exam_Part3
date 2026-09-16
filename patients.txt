@@ -38,3 +38,12 @@ Contact: 09812781862
 Allergies: Dogs, Seafood
 Surgeries: Hip Transplant
 ---
+PatientID: P1006
+Name: Nathan Daniels
+Sex: Male
+Age: 54
+Contact: 09190828163
+Allergies: Soy, Kale, Dogs, Cats, Bees
+Surgeries: Broken Arm, Jaw Transplant, Hip Transplant
+Note: 2026-09-16 15:01:11 | doctor1 | Needs more cough medicine
+---
